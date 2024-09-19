@@ -1,7 +1,7 @@
 pub mod problem;
 pub mod bnb;
-pub mod schedule;
 pub mod world;
+pub mod longestpaths;
 
 fn main() {
     println!("Hello, world!");

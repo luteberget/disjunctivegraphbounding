@@ -3,7 +3,7 @@ use std::{cmp::Reverse, collections::BinaryHeap, rc::Rc};
 use tinyvec::TinyVec;
 
 use crate::{
-    problem::{DisjunctiveCliquesProblem, Edge},
+    problem::{DisjunctiveGraph, Edge},
     world::{State, World},
 };
 
@@ -34,7 +34,7 @@ impl Ord for Node {
     }
 }
 
-pub fn solve(problem: &DisjunctiveCliquesProblem) -> Option<i32> {
+pub fn solve(problem: &DisjunctiveGraph) -> Option<i32> {
     let mut world = World::new(problem)?;
     let mut world_state = Rc::new(Node {
         state: world.mk_state(i32::MAX),

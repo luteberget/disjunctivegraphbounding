@@ -10,16 +10,11 @@ pub struct Edge {
 pub struct Node {
     pub lb :i32,
     pub ub :i32,
-    pub coeff :i32,
+    pub coeff :u32,
     pub threshold :i32,
 }
 
 pub struct DisjunctiveGraph {
     pub nodes :Vec<Node>,
     pub edge_sets: Vec<TinyVec<[Edge; 2]>>,
-}
-
-pub struct DisjunctiveCliquesProblem {
-    pub disjunctive_graph :DisjunctiveGraph,
-    pub cliques :Vec<Vec<Edge>>,
 }
