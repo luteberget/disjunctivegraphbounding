@@ -5,6 +5,7 @@ use tinyvec::TinyVec;
 use crate::{
     longestpaths::LongestPaths,
     problem::{DisjunctiveGraph, Edge},
+    wdg::{WdgEdge, WdgSolverBinaryMIP},
 };
 
 #[derive(Default)]
@@ -21,6 +22,7 @@ pub struct World {
 
     n_partitions: usize,
     partitions: Vec<PartitionId>,
+    wdg_solver: WdgSolverBinaryMIP,
 }
 
 impl World {
@@ -67,13 +69,14 @@ impl World {
             nonunit_disjunctions,
             n_partitions,
             partitions,
+            wdg_solver: WdgSolverBinaryMIP::default(),
         })
     }
 
     pub fn mk_state(&mut self, cost_ub: i32) -> State {
         let mut branching: Option<(i32, TinyVec<[Edge; 2]>)> = None;
         let mut lb: Option<i32> = None;
-
+        self.wdg_solver.clear();
         let realized_cost = self.schedule.objective_value;
 
         // Strong branching + gather conflict bounding problem coefficients
@@ -89,7 +92,12 @@ impl World {
 
             let valid_edges: TinyVec<[(Edge, i32); 2]> = es
                 .iter()
-                .filter_map(|x| self.schedule.hypothetical_edge_lb(*x).map(|lb| (*x, lb - realized_cost)))
+                .filter_map(|x| {
+                    self.schedule
+                        .hypothetical_edge_lb(*x, |_| true)
+                        .map(|lb| (*x, lb - realized_cost))
+                })
+                .filter(|(_e, bound_increase)| realized_cost + bound_increase < cost_ub)
                 .collect();
 
             // Short-circuit when there is a forced edge or infeasibility.
@@ -101,11 +109,39 @@ impl World {
 
             // Gather conflicts based on the partition
             if valid_edges.len() == 2 {
-                let lb_edge1 = 
+                let wdg_edge1 = {
+                    let edge = valid_edges[0].0;
+                    let partition = self.partitions[edge.tgt as usize];
+                    self.schedule
+                        .hypothetical_edge_lb(edge, |other_node| {
+                            self.partitions[other_node as usize] == partition
+                        })
+                        .map(|w| WdgEdge {
+                            partition,
+                            d_cost: w,
+                        })
+                }
+                .unwrap();
+
+                let wdg_edge2 = {
+                    let edge = valid_edges[1].0;
+                    let partition = self.partitions[edge.tgt as usize];
+                    self.schedule
+                        .hypothetical_edge_lb(edge, |other_node| {
+                            self.partitions[other_node as usize] == partition
+                        })
+                        .map(|w| WdgEdge {
+                            partition,
+                            d_cost: w,
+                        })
+                }
+                .unwrap();
+
+                self.wdg_solver.add_edge_pair(wdg_edge1, wdg_edge2);
             }
         }
 
-        let lb = lb.unwrap_or_else(|| 0);
+        let lb = lb.unwrap_or_else(|| realized_cost + self.wdg_solver.solve(self.n_partitions));
 
         State {
             lb,
@@ -114,7 +150,7 @@ impl World {
     }
 
     pub fn push(&mut self, e: Edge) -> bool {
-        self.schedule.push_edge(e)
+        self.schedule.push_edge(e, |_| true)
     }
 
     pub fn pop(&mut self) {

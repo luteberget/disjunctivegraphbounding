@@ -48,13 +48,14 @@ impl LongestPaths {
     }
 
     pub fn obj_component(node: &Node) -> i32 {
-        let x = node.coeff * node.position.saturating_sub(node.delayed_after);
-        x
+        node.coeff * node.position.saturating_sub(node.delayed_after)
     }
 
     pub fn add_fixed_edge(&mut self, edge: Edge) -> bool {
-        assert!(self.trail.is_empty() && self.trail_lim.is_empty() && self.edge_undo_stack.is_empty());
-        if !self.push_edge(edge) {
+        assert!(
+            self.trail.is_empty() && self.trail_lim.is_empty() && self.edge_undo_stack.is_empty()
+        );
+        if !self.push_edge(edge, |_| true) {
             return false;
         }
 
@@ -64,8 +65,10 @@ impl LongestPaths {
         true
     }
 
-    pub fn push_edge(&mut self, edge: Edge) -> bool {
+    pub fn push_edge(&mut self, edge: Edge, mut filter: impl FnMut(u32) -> bool) -> bool {
         // let _p = hprof::enter("push edge");
+        assert!(filter(edge.tgt));
+
         self.outgoing[edge.src as usize].push((edge.tgt, edge.weight));
         self.edge_undo_stack.push(edge);
         self.trail_lim.push(self.trail.len() as u32);
@@ -74,6 +77,10 @@ impl LongestPaths {
 
         while let Some(node) = self.queue.pop() {
             for (next_node, dist) in self.outgoing[node as usize].iter().copied() {
+                if !filter(next_node) {
+                    continue;
+                }
+
                 let target_position = self.nodes[node as usize].position + dist;
                 let next_node_data = &mut self.nodes[next_node as usize];
                 if next_node_data.position < target_position {
@@ -131,11 +138,21 @@ impl LongestPaths {
         self.trail[(start as usize)..].iter().map(|(nd, _)| *nd)
     }
 
-    pub fn hypothetical_edge_lb(&mut self, edge: Edge) -> Option<i32> {
-        self.push_edge(edge).then(|| {
+    pub fn hypothetical_edge_lb(
+        &mut self,
+        edge: Edge,
+        filter: impl FnMut(u32) -> bool,
+    ) -> Option<i32> {
+        self.push_edge(edge, filter).then(|| {
             let value = self.objective_value;
             self.pop(|_| {});
             value
         })
+    }
+}
+
+impl Default for LongestPaths {
+    fn default() -> Self {
+        Self::new()
     }
 }
