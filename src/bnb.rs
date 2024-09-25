@@ -1,11 +1,17 @@
 use std::{cmp::Reverse, collections::BinaryHeap, rc::Rc};
 
+use log::{debug, info, trace};
 use tinyvec::TinyVec;
 
 use crate::{
     problem::{DisjunctiveGraph, Edge},
     world::{State, World},
 };
+
+pub struct SolverSettings {
+    pub use_strong_branching: bool,
+    pub use_wdg_bound: bool,
+}
 
 #[derive(Default)]
 struct Node {
@@ -34,13 +40,40 @@ impl Ord for Node {
     }
 }
 
-pub fn solve(problem: &DisjunctiveGraph) -> Option<i32> {
-    let mut world = World::new(problem)?;
+#[derive(Debug)]
+pub struct SolverStats {
+    pub n_states_generated: usize,
+    pub n_nodes_generated: usize,
+    pub n_nodes_solved: usize,
+    pub max_depth: u32,
+    pub solution_depth: u32,
+    pub root_bound: i32,
+}
+
+pub fn solve(problem: &DisjunctiveGraph, settings: &SolverSettings) -> (SolverStats, Option<i32>) {
+    let mut stats = SolverStats {
+        max_depth: 0,
+        n_nodes_generated: 0,
+        n_nodes_solved: 0,
+        n_states_generated: 0,
+        solution_depth: u32::MAX,
+        root_bound: i32::MAX,
+    };
+    let mut world = match World::new(problem) {
+        None => {
+            return (stats, None);
+        }
+        Some(w) => w,
+    };
+
+    // let root_longestpath_bound = world.longestpaths_bound();
     let mut world_state = Rc::new(Node {
-        state: world.mk_state(i32::MAX),
+        state: world.mk_state(settings, i32::MAX),
         depth: 0,
         parent: None,
     });
+    stats.root_bound = world_state.state.lb;
+    debug!("Root node state {:?}", world_state.state);
     let mut target_state = world_state.clone();
     let mut queue_by_lb: BinaryHeap<Reverse<Rc<Node>>> = Default::default();
     let mut best_state: Option<Rc<Node>> = None;
@@ -51,6 +84,11 @@ pub fn solve(problem: &DisjunctiveGraph) -> Option<i32> {
         //
         // Pop constraints until we reach the common ancestor,
         // then push constraints until we get down to the `node`.
+        trace!(
+            "going to node d={} lb={}",
+            target_state.depth,
+            target_state.state.lb
+        );
         {
             let mut common_ancestor = &target_state;
             while !Rc::ptr_eq(&world_state, common_ancestor) {
@@ -68,6 +106,7 @@ pub fn solve(problem: &DisjunctiveGraph) -> Option<i32> {
             }
         }
         assert!(Rc::ptr_eq(&target_state, &world_state));
+        stats.n_nodes_solved += 1;
 
         // Generate new nodes based on the target node's precomputed branching choices.
         //
@@ -75,6 +114,7 @@ pub fn solve(problem: &DisjunctiveGraph) -> Option<i32> {
         let mut new_nodes: TinyVec<[Rc<Node>; 2]> = match target_state.state.branching.as_ref() {
             None => {
                 if target_state.state.lb < ub {
+                    info!("NEW BEST {}", target_state.state.lb);
                     best_state = Some(target_state);
                 }
                 Default::default()
@@ -83,20 +123,24 @@ pub fn solve(problem: &DisjunctiveGraph) -> Option<i32> {
                 let mut new_nodes: TinyVec<[Rc<Node>; 2]> = Default::default();
                 for b in bs.iter() {
                     assert!(world.push(*b));
-                    let state = world.mk_state(ub);
+                    let state = world.mk_state(settings, ub);
+                    stats.n_states_generated += 1;
                     if !state
                         .branching
                         .as_ref()
                         .map(|x| x.is_empty())
                         .unwrap_or(false)
                     {
+                        stats.n_nodes_generated += 1;
                         let node = Rc::new(Node {
                             state,
                             depth: target_state.depth + 1,
                             parent: Some((target_state.clone(), *b)),
                         });
+                        stats.max_depth = stats.max_depth.max(node.depth);
                         if node.state.branching.is_none() {
                             assert!(node.state.lb < ub);
+                            info!("NEW BEST {}", node.state.lb);
                             best_state = Some(node);
                         } else {
                             new_nodes.push(node);
@@ -118,12 +162,22 @@ pub fn solve(problem: &DisjunctiveGraph) -> Option<i32> {
             target_state = new_nodes.remove(0);
         } else {
             match queue_by_lb.pop() {
-                None => break,
-                Some(Reverse(n)) => target_state = n,
+                None => {
+                    debug!("queue empty");
+                    break;
+                }
+                Some(Reverse(n)) => {
+                    if n.state.lb >= ub {
+                        debug!("ub reached");
+                        break;
+                    }
+                    target_state = n;
+                }
             }
         }
         queue_by_lb.extend(new_nodes.into_iter().map(Reverse));
     }
 
-    best_state.map(|n| n.state.lb)
+    stats.solution_depth = best_state.as_ref().map(|n| n.depth).unwrap_or(u32::MAX);
+    (stats, best_state.map(|n| n.state.lb))
 }

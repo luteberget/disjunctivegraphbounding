@@ -3,6 +3,7 @@ use tinyvec::TinyVec;
 
 #[derive(Deserialize)]
 #[derive(Default ,Clone, Copy)]
+#[derive(Debug)]
 pub struct Edge {
     pub src :u32,
     pub tgt: u32,

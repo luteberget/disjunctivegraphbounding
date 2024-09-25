@@ -1,3 +1,4 @@
+
 use crate::problem::{self, Edge};
 
 pub type Time = i32;
@@ -52,6 +53,7 @@ impl LongestPaths {
     }
 
     pub fn add_fixed_edge(&mut self, edge: Edge) -> bool {
+        // trace!("fixed edge {:?}", edge);
         assert!(
             self.trail.is_empty() && self.trail_lim.is_empty() && self.edge_undo_stack.is_empty()
         );
@@ -66,6 +68,7 @@ impl LongestPaths {
     }
 
     pub fn push_edge(&mut self, edge: Edge, mut filter: impl FnMut(u32) -> bool) -> bool {
+        // trace!("push {:?}", edge);
         // let _p = hprof::enter("push edge");
         assert!(filter(edge.tgt));
 
@@ -111,6 +114,7 @@ impl LongestPaths {
     }
 
     pub fn pop(&mut self, mut node_changed: impl FnMut(u32)) {
+        // trace!("pop {:?}", self.edge_undo_stack[0]);
         // let _p = hprof::enter("pop edge");
         let edge = self.edge_undo_stack.pop().unwrap();
 

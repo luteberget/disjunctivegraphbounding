@@ -1,14 +1,16 @@
 use std::collections::HashMap;
 
+use log::trace;
 use tinyvec::TinyVec;
 
 use crate::{
+    bnb::SolverSettings,
     longestpaths::LongestPaths,
     problem::{DisjunctiveGraph, Edge},
     wdg::{WdgEdge, WdgSolverBinaryMIP},
 };
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct State {
     pub lb: i32,
     pub branching: Option<TinyVec<[Edge; 2]>>,
@@ -63,6 +65,7 @@ impl World {
                 });
             partitions.push(partition_idx as u32);
         }
+        trace!("Partitions: {:?}", partitions);
 
         Some(Self {
             schedule,
@@ -73,7 +76,11 @@ impl World {
         })
     }
 
-    pub fn mk_state(&mut self, cost_ub: i32) -> State {
+    pub fn longestpaths_bound(&self) -> i32 {
+        self.schedule.objective_value
+    }
+
+    pub fn mk_state(&mut self, settings: &SolverSettings, cost_ub: i32) -> State {
         let mut branching: Option<(i32, TinyVec<[Edge; 2]>)> = None;
         let mut lb: Option<i32> = None;
         self.wdg_solver.clear();
@@ -87,6 +94,7 @@ impl World {
                 let t2 = self.schedule.nodes[e.tgt as usize].position;
                 t1 + e.weight <= t2
             }) {
+                // trace!("skipping satsified constraint {:?}", es);
                 continue;
             }
 
@@ -102,13 +110,19 @@ impl World {
 
             // Short-circuit when there is a forced edge or infeasibility.
             if valid_edges.len() < 2 {
+                lb = Some(
+                    valid_edges
+                        .iter()
+                        .next()
+                        .map(|(_, l)| self.wdg_solver.solve(self.n_partitions) * l + realized_cost)
+                        .unwrap_or(i32::MIN),
+                );
                 branching = Some((i32::MAX, valid_edges.into_iter().map(|x| x.0).collect()));
-                lb = Some(i32::MIN);
                 break;
             }
 
             // Gather conflicts based on the partition
-            if valid_edges.len() == 2 {
+            if settings.use_wdg_bound && valid_edges.len() == 2 {
                 let wdg_edge1 = {
                     let edge = valid_edges[0].0;
                     let partition = self.partitions[edge.tgt as usize];
@@ -118,30 +132,60 @@ impl World {
                         })
                         .map(|w| WdgEdge {
                             partition,
-                            d_cost: w,
+                            d_cost: w - realized_cost,
                         })
                 }
                 .unwrap();
 
-                let wdg_edge2 = {
-                    let edge = valid_edges[1].0;
-                    let partition = self.partitions[edge.tgt as usize];
-                    self.schedule
-                        .hypothetical_edge_lb(edge, |other_node| {
-                            self.partitions[other_node as usize] == partition
-                        })
-                        .map(|w| WdgEdge {
-                            partition,
-                            d_cost: w,
-                        })
-                }
-                .unwrap();
+                if wdg_edge1.d_cost > 0 {
+                    let wdg_edge2 = {
+                        let edge = valid_edges[1].0;
+                        let partition = self.partitions[edge.tgt as usize];
+                        self.schedule
+                            .hypothetical_edge_lb(edge, |other_node| {
+                                self.partitions[other_node as usize] == partition
+                            })
+                            .map(|w| WdgEdge {
+                                partition,
+                                d_cost: w - realized_cost,
+                            })
+                    }
+                    .unwrap();
 
-                self.wdg_solver.add_edge_pair(wdg_edge1, wdg_edge2);
+                    if wdg_edge2.d_cost > 0 {
+                        self.wdg_solver.add_edge_pair(wdg_edge1, wdg_edge2);
+                    }
+                }
+            }
+
+            // Compute the strong-branching or chronology score.
+
+            let score = if settings.use_strong_branching {
+                let min_lb_incr = valid_edges.iter().map(|(_, d_lb)| d_lb).min().unwrap();
+                let max_lb_incr = valid_edges.iter().map(|(_, d_lb)| d_lb).max().unwrap();
+
+                5 * min_lb_incr + max_lb_incr
+            } else {
+                let earliest_time = es
+                    .iter()
+                    .flat_map(|e| {
+                        let t1 = self.schedule.nodes[e.src as usize].position;
+                        let t2 = self.schedule.nodes[e.tgt as usize].position;
+                        [t1, t2]
+                    })
+                    .min()
+                    .unwrap();
+
+                -earliest_time
+            };
+
+            if score > branching.as_ref().map(|(s, _)| *s).unwrap_or(i32::MIN) {
+                branching = Some((score, valid_edges.into_iter().map(|(e, _)| e).collect()));
             }
         }
 
         let lb = lb.unwrap_or_else(|| realized_cost + self.wdg_solver.solve(self.n_partitions));
+        trace!("mk_state ub={} cost={} lb={}", cost_ub, realized_cost, lb);
 
         State {
             lb,
