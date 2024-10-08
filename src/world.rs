@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use log::trace;
+use log::{debug, trace};
 use tinyvec::TinyVec;
 
 use crate::{
@@ -80,11 +80,12 @@ impl World {
         self.schedule.objective_value
     }
 
-    pub fn mk_state(&mut self, settings: &SolverSettings, cost_ub: i32) -> State {
+    pub fn mk_state(&mut self, settings: &SolverSettings, pre_lb :i32, cost_ub: i32) -> Option<State> {
         let mut branching: Option<(i32, TinyVec<[Edge; 2]>)> = None;
         let mut lb: Option<i32> = None;
         self.wdg_solver.clear();
         let realized_cost = self.schedule.objective_value;
+        // debug!("realized cost {}", realized_cost);
 
         // Strong branching + gather conflict bounding problem coefficients
         for es in self.nonunit_disjunctions.iter() {
@@ -110,13 +111,7 @@ impl World {
 
             // Short-circuit when there is a forced edge or infeasibility.
             if valid_edges.len() < 2 {
-                lb = Some(
-                    valid_edges
-                        .iter()
-                        .next()
-                        .map(|(_, l)| self.wdg_solver.solve(self.n_partitions) * l + realized_cost)
-                        .unwrap_or(i32::MIN),
-                );
+                lb = Some(pre_lb);
                 branching = Some((i32::MAX, valid_edges.into_iter().map(|x| x.0).collect()));
                 break;
             }
@@ -185,12 +180,16 @@ impl World {
         }
 
         let lb = lb.unwrap_or_else(|| realized_cost + self.wdg_solver.solve(self.n_partitions));
+        if lb >= cost_ub {
+            return None;
+        }
+        
         trace!("mk_state ub={} cost={} lb={}", cost_ub, realized_cost, lb);
 
-        State {
+        Some(State {
             lb,
             branching: branching.map(|x| x.1),
-        }
+        })
     }
 
     pub fn push(&mut self, e: Edge) -> bool {

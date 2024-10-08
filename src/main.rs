@@ -42,6 +42,11 @@ fn main() {
             "strong+wdg"
         };
         for filename in filenames.iter() {
+
+            // if !filename.to_string_lossy().contains("2024_02_07_17_48_33_658_1") {
+            //     continue;
+            // }
+
             let problem: problem::DisjunctiveGraph =
                 serde_json::from_str(&std::fs::read_to_string(filename).unwrap()).unwrap();
 
@@ -55,9 +60,16 @@ fn main() {
             let (stats, obj) = bnb::solve(&problem, &settings);
             let objective = obj.map(|x| format!("{}", x)).unwrap_or("-".to_string());
             println!(" {{ 'name': '{}', 'settings': '{}', 'objective': '{}', 'states': {}, 'nodes_generated': {}, 'nodes_solved': {}, 'max_depth': {}, 'solution_depth': {}, 'root_bound': {}  }},", 
-            filename.display(), settings_name, objective,
-        stats.n_states_generated, stats.n_nodes_generated, stats.n_nodes_solved,
-    stats.max_depth, stats.solution_depth, stats.root_bound);
+                filename.display(), 
+                settings_name, 
+                objective,
+                stats.n_states_generated, 
+                stats.n_nodes_generated, 
+                stats.n_nodes_solved,
+                stats.max_depth,
+                stats.solution_depth,
+                stats.root_bound
+            );
         }
     }
     println!("]");

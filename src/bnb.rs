@@ -68,7 +68,9 @@ pub fn solve(problem: &DisjunctiveGraph, settings: &SolverSettings) -> (SolverSt
 
     // let root_longestpath_bound = world.longestpaths_bound();
     let mut world_state = Rc::new(Node {
-        state: world.mk_state(settings, i32::MAX),
+        state: world
+            .mk_state(settings, world.longestpaths_bound(), i32::MAX)
+            .unwrap(),
         depth: 0,
         parent: None,
     });
@@ -80,14 +82,18 @@ pub fn solve(problem: &DisjunctiveGraph, settings: &SolverSettings) -> (SolverSt
     let mut node_buf: Vec<Rc<Node>> = Vec::new();
 
     loop {
+        // Terminate when lb >= ub
+        if target_state.state.lb >= best_state.as_ref().map(|s| s.state.lb).unwrap_or(i32::MAX) {
+            break;
+        }
+
         // Bring the world state to the target state:
         //
         // Pop constraints until we reach the common ancestor,
         // then push constraints until we get down to the `node`.
         trace!(
             "going to node d={} lb={}",
-            target_state.depth,
-            target_state.state.lb
+            target_state.depth, target_state.state.lb
         );
         {
             let mut common_ancestor = &target_state;
@@ -123,27 +129,29 @@ pub fn solve(problem: &DisjunctiveGraph, settings: &SolverSettings) -> (SolverSt
                 let mut new_nodes: TinyVec<[Rc<Node>; 2]> = Default::default();
                 for b in bs.iter() {
                     assert!(world.push(*b));
-                    let state = world.mk_state(settings, ub);
+                    let state = world.mk_state(settings, target_state.state.lb, ub);
                     stats.n_states_generated += 1;
-                    if !state
-                        .branching
-                        .as_ref()
-                        .map(|x| x.is_empty())
-                        .unwrap_or(false)
-                    {
-                        stats.n_nodes_generated += 1;
-                        let node = Rc::new(Node {
-                            state,
-                            depth: target_state.depth + 1,
-                            parent: Some((target_state.clone(), *b)),
-                        });
-                        stats.max_depth = stats.max_depth.max(node.depth);
-                        if node.state.branching.is_none() {
-                            assert!(node.state.lb < ub);
-                            info!("NEW BEST {}", node.state.lb);
-                            best_state = Some(node);
-                        } else {
-                            new_nodes.push(node);
+                    if let Some(state) = state {
+                        if !state
+                            .branching
+                            .as_ref()
+                            .map(|x| x.is_empty())
+                            .unwrap_or(false)
+                        {
+                            stats.n_nodes_generated += 1;
+                            let node = Rc::new(Node {
+                                state,
+                                depth: target_state.depth + 1,
+                                parent: Some((target_state.clone(), *b)),
+                            });
+                            stats.max_depth = stats.max_depth.max(node.depth);
+                            if node.state.branching.is_none() {
+                                assert!(node.state.lb < ub);
+                                info!("NEW BEST {}", node.state.lb);
+                                best_state = Some(node);
+                            } else {
+                                new_nodes.push(node);
+                            }
                         }
                     }
                     world.pop();
