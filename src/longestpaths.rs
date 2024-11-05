@@ -1,4 +1,3 @@
-
 use crate::problem::{self, Edge};
 
 pub type Time = i32;
@@ -57,7 +56,7 @@ impl LongestPaths {
         assert!(
             self.trail.is_empty() && self.trail_lim.is_empty() && self.edge_undo_stack.is_empty()
         );
-        if !self.push_edge(edge, |_| true) {
+        if !self.push_edge(edge, |_, _| {}) {
             return false;
         }
 
@@ -67,10 +66,9 @@ impl LongestPaths {
         true
     }
 
-    pub fn push_edge(&mut self, edge: Edge, mut filter: impl FnMut(u32) -> bool) -> bool {
+    pub fn push_edge(&mut self, edge: Edge, mut bound_change: impl FnMut(u32, i32)) -> bool {
         // trace!("push {:?}", edge);
         // let _p = hprof::enter("push edge");
-        assert!(filter(edge.tgt));
 
         self.outgoing[edge.src as usize].push((edge.tgt, edge.weight));
         self.edge_undo_stack.push(edge);
@@ -80,10 +78,6 @@ impl LongestPaths {
 
         while let Some(node) = self.queue.pop() {
             for (next_node, dist) in self.outgoing[node as usize].iter().copied() {
-                if !filter(next_node) {
-                    continue;
-                }
-
                 let target_position = self.nodes[node as usize].position + dist;
                 let next_node_data = &mut self.nodes[next_node as usize];
                 if next_node_data.position < target_position {
@@ -93,9 +87,17 @@ impl LongestPaths {
                     }
 
                     self.trail.push((next_node, next_node_data.position));
-                    self.objective_value -= Self::obj_component(next_node_data);
+                    let old_objective = Self::obj_component(next_node_data);
                     next_node_data.position = target_position;
-                    self.objective_value += Self::obj_component(next_node_data);
+                    let new_objective = Self::obj_component(next_node_data);
+
+                    let delta_objective = new_objective - old_objective;
+                    assert!(delta_objective >= 0);
+
+                    self.objective_value += delta_objective;
+                    if delta_objective > 0 {
+                        bound_change(next_node, delta_objective);
+                    }
 
                     let mut new_elem_idx = self.queue.len();
                     self.queue.push(next_node);
@@ -142,16 +144,11 @@ impl LongestPaths {
         self.trail[(start as usize)..].iter().map(|(nd, _)| *nd)
     }
 
-    pub fn hypothetical_edge_lb(
-        &mut self,
-        edge: Edge,
-        filter: impl FnMut(u32) -> bool,
-    ) -> Option<i32> {
-        self.push_edge(edge, filter).then(|| {
-            let value = self.objective_value;
+    pub fn hypothetical_edge_lb(&mut self, edge: Edge, bound_change: impl FnMut(u32, i32)) -> bool {
+        self.push_edge(edge, bound_change) && {
             self.pop(|_| {});
-            value
-        })
+            true
+        }
     }
 }
 

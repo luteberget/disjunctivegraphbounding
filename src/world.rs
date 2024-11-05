@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use log::{debug, trace};
+use log::trace;
 use tinyvec::TinyVec;
 
 use crate::{
@@ -80,7 +80,12 @@ impl World {
         self.schedule.objective_value
     }
 
-    pub fn mk_state(&mut self, settings: &SolverSettings, pre_lb :i32, cost_ub: i32) -> Option<State> {
+    pub fn mk_state(
+        &mut self,
+        settings: &SolverSettings,
+        pre_lb: i32,
+        cost_ub: i32,
+    ) -> Option<State> {
         let mut branching: Option<(i32, TinyVec<[Edge; 2]>)> = None;
         let mut lb: Option<i32> = None;
         self.wdg_solver.clear();
@@ -99,15 +104,38 @@ impl World {
                 continue;
             }
 
-            let valid_edges: TinyVec<[(Edge, i32); 2]> = es
-                .iter()
-                .filter_map(|x| {
-                    self.schedule
-                        .hypothetical_edge_lb(*x, |_| true)
-                        .map(|lb| (*x, lb - realized_cost))
-                })
-                .filter(|(_e, bound_increase)| realized_cost + bound_increase < cost_ub)
-                .collect();
+            let mut valid_edges: TinyVec<[(Edge, i32); 2]> = Default::default();
+            let mut route_contraction_constraints: TinyVec<[TinyVec<[WdgEdge; 8]>; 2]> =
+                Default::default();
+
+            for e in es.iter() {
+                let mut total_bound_change = 0;
+                let mut constraints: TinyVec<[WdgEdge; 8]> = Default::default();
+
+                let schedule_feasible = self.schedule.hypothetical_edge_lb(*e, |node, d_cost| {
+                    let partition = self.partitions[node as usize];
+
+                    let c_i = constraints
+                        .iter_mut()
+                        .position(|c| c.partition == partition)
+                        .unwrap_or_else(|| {
+                            constraints.push(WdgEdge {
+                                partition,
+                                d_cost: 0,
+                            });
+                            constraints.len() - 1
+                        });
+
+                    constraints[c_i].d_cost += d_cost;
+                    total_bound_change += d_cost;
+                });
+
+                let ub_feasible = realized_cost + total_bound_change < cost_ub;
+                if schedule_feasible && ub_feasible {
+                    valid_edges.push((*e, total_bound_change));
+                    route_contraction_constraints.push(constraints);
+                }
+            }
 
             // Short-circuit when there is a forced edge or infeasibility.
             if valid_edges.len() < 2 {
@@ -116,45 +144,19 @@ impl World {
                 break;
             }
 
-            // Gather conflicts based on the partition
-            if settings.use_wdg_bound && valid_edges.len() == 2 {
-                let wdg_edge1 = {
-                    let edge = valid_edges[0].0;
-                    let partition = self.partitions[edge.tgt as usize];
-                    self.schedule
-                        .hypothetical_edge_lb(edge, |other_node| {
-                            self.partitions[other_node as usize] == partition
-                        })
-                        .map(|w| WdgEdge {
-                            partition,
-                            d_cost: w - realized_cost,
-                        })
-                }
-                .unwrap();
+            if settings.use_wdg_bound {
+                // The test problems all have 2-way disjunctions. The
+                // WDG solver needs to be generalized to handle disjunctions
+                // with 3 or more alternatives.
+                assert!(valid_edges.len() == 2 && route_contraction_constraints.len() == 2);
 
-                if wdg_edge1.d_cost > 0 {
-                    let wdg_edge2 = {
-                        let edge = valid_edges[1].0;
-                        let partition = self.partitions[edge.tgt as usize];
-                        self.schedule
-                            .hypothetical_edge_lb(edge, |other_node| {
-                                self.partitions[other_node as usize] == partition
-                            })
-                            .map(|w| WdgEdge {
-                                partition,
-                                d_cost: w - realized_cost,
-                            })
-                    }
-                    .unwrap();
-
-                    if wdg_edge2.d_cost > 0 {
-                        self.wdg_solver.add_edge_pair(wdg_edge1, wdg_edge2);
-                    }
-                }
+                self.wdg_solver.add_disjunction(
+                    &route_contraction_constraints[0],
+                    &route_contraction_constraints[1],
+                );
             }
 
             // Compute the strong-branching or chronology score.
-
             let score = if settings.use_strong_branching {
                 let min_lb_incr = valid_edges.iter().map(|(_, d_lb)| d_lb).min().unwrap();
                 let max_lb_incr = valid_edges.iter().map(|(_, d_lb)| d_lb).max().unwrap();
@@ -183,7 +185,7 @@ impl World {
         if lb >= cost_ub {
             return None;
         }
-        
+
         trace!("mk_state ub={} cost={} lb={}", cost_ub, realized_cost, lb);
 
         Some(State {
@@ -193,7 +195,7 @@ impl World {
     }
 
     pub fn push(&mut self, e: Edge) -> bool {
-        self.schedule.push_edge(e, |_| true)
+        self.schedule.push_edge(e, |_,_| {})
     }
 
     pub fn pop(&mut self) {
