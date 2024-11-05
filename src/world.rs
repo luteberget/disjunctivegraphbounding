@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use log::trace;
+use log::{debug, trace};
 use tinyvec::TinyVec;
 
 use crate::{
@@ -112,7 +112,9 @@ impl World {
                 let mut total_bound_change = 0;
                 let mut constraints: TinyVec<[WdgEdge; 8]> = Default::default();
 
+                debug!("testing edge {:?}", e);
                 let schedule_feasible = self.schedule.hypothetical_edge_lb(*e, |node, d_cost| {
+                    debug!("bound change {} {}", self.partitions[node as usize], d_cost);
                     let partition = self.partitions[node as usize];
 
                     let c_i = constraints
@@ -150,10 +152,13 @@ impl World {
                 // with 3 or more alternatives.
                 assert!(valid_edges.len() == 2 && route_contraction_constraints.len() == 2);
 
+                if route_contraction_constraints[0].len() > 0 && route_contraction_constraints[1].len() > 0 {
+
                 self.wdg_solver.add_disjunction(
                     &route_contraction_constraints[0],
                     &route_contraction_constraints[1],
                 );
+            }
             }
 
             // Compute the strong-branching or chronology score.

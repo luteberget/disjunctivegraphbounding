@@ -1,4 +1,4 @@
-use log::trace;
+use log::{debug, trace};
 use std::collections::{HashMap, HashSet};
 use tinyvec::TinyVec;
 
@@ -93,9 +93,9 @@ impl WdgSolverBinaryMIP {
             return 0;
         }
 
-        trace!("wdg_solve:");
+        debug!("wdg_solve:");
         for x in self.disjunctions.iter() {
-            trace!("  -  {:?}", x);
+            debug!("  -  {:?}", x);
         }
 
         let mut problem = highs::RowProblem::new();

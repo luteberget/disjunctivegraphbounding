@@ -1,3 +1,5 @@
+use log::{debug, trace};
+
 use crate::problem::{self, Edge};
 
 pub type Time = i32;
@@ -70,6 +72,8 @@ impl LongestPaths {
         // trace!("push {:?}", edge);
         // let _p = hprof::enter("push edge");
 
+        trace!(" push edge {:?}   ++ {:?}", self.edge_undo_stack, edge );
+
         self.outgoing[edge.src as usize].push((edge.tgt, edge.weight));
         self.edge_undo_stack.push(edge);
         self.trail_lim.push(self.trail.len() as u32);
@@ -88,14 +92,16 @@ impl LongestPaths {
 
                     self.trail.push((next_node, next_node_data.position));
                     let old_objective = Self::obj_component(next_node_data);
+                    let old_position = next_node_data.position;
                     next_node_data.position = target_position;
                     let new_objective = Self::obj_component(next_node_data);
-
+                    
                     let delta_objective = new_objective - old_objective;
                     assert!(delta_objective >= 0);
-
+                    
                     self.objective_value += delta_objective;
                     if delta_objective > 0 {
+                        debug!("changed position from {} to {}", old_position, target_position);
                         bound_change(next_node, delta_objective);
                     }
 
