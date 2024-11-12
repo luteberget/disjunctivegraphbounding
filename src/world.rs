@@ -90,7 +90,8 @@ impl World {
         let mut lb: Option<i32> = None;
         self.wdg_solver.clear();
         let realized_cost = self.schedule.objective_value;
-        // debug!("realized cost {}", realized_cost);
+        debug!("realized cost {}", realized_cost);
+        debug!("MK STATE");
 
         // Strong branching + gather conflict bounding problem coefficients
         for es in self.nonunit_disjunctions.iter() {
@@ -112,9 +113,9 @@ impl World {
                 let mut total_bound_change = 0;
                 let mut constraints: TinyVec<[WdgEdge; 8]> = Default::default();
 
-                debug!("testing edge {:?}", e);
+                // debug!("testing edge {:?}", e);
                 let schedule_feasible = self.schedule.hypothetical_edge_lb(*e, |node, d_cost| {
-                    debug!("bound change {} {}", self.partitions[node as usize], d_cost);
+                    // debug!("bound change {} {}", self.partitions[node as usize], d_cost);
                     let partition = self.partitions[node as usize];
 
                     let c_i = constraints
@@ -152,13 +153,14 @@ impl World {
                 // with 3 or more alternatives.
                 assert!(valid_edges.len() == 2 && route_contraction_constraints.len() == 2);
 
-                if route_contraction_constraints[0].len() > 0 && route_contraction_constraints[1].len() > 0 {
-
-                self.wdg_solver.add_disjunction(
-                    &route_contraction_constraints[0],
-                    &route_contraction_constraints[1],
-                );
-            }
+                if !route_contraction_constraints[0].is_empty()
+                    && !route_contraction_constraints[1].is_empty()
+                {
+                    self.wdg_solver.add_disjunction(
+                        &route_contraction_constraints[0],
+                        &route_contraction_constraints[1],
+                    );
+                }
             }
 
             // Compute the strong-branching or chronology score.
@@ -186,7 +188,7 @@ impl World {
             }
         }
 
-        let lb = lb.unwrap_or_else(|| realized_cost + self.wdg_solver.solve(self.n_partitions));
+        let lb = lb.unwrap_or_else(|| realized_cost + self.wdg_solver.solve(self.n_partitions, settings.use_relaxed_wdg));
         if lb >= cost_ub {
             return None;
         }
@@ -200,7 +202,7 @@ impl World {
     }
 
     pub fn push(&mut self, e: Edge) -> bool {
-        self.schedule.push_edge(e, |_,_| {})
+        self.schedule.push_edge(e, |_, _| {})
     }
 
     pub fn pop(&mut self) {

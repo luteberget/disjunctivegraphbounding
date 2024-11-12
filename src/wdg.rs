@@ -71,24 +71,31 @@ impl WdgSolverBinaryMIP {
         self.disjunctions.push((alt1.clone(), alt2.clone()));
 
         if simple_pair {
-            assert!(alt1[0].partition != alt2[0].partition);
+            // if alt1[0].partition == alt2[0].partition {
+            //     panic!("simple pair to same partition: \n - {:?}\n - {:?}", alt1, alt2);
+            // }
             let (p1, p2) = (alt1[0].partition, alt2[0].partition);
 
             let disjunction_ref_list = self.simple_pair_disjunctions.entry((p1, p2)).or_default();
 
             let dom = |d| {
+                // println!("add.dominated: {:?}", self.disjunctions[d]);
                 self.dominated_disjunctions.insert(d);
             };
             if remove_dominated(&self.disjunctions, disjunction_ref_list, new_elem, dom) {
                 disjunction_ref_list.push(new_elem);
             } else {
                 // Undo the insertion -- this new disjunction was dominated.
+                // println!("ins.dominated: {:?}", self.disjunctions[new_elem]);
                 self.disjunctions.pop();
+                return;
             }
         }
+
+        // println!("not dominated: {:?}", self.disjunctions[new_elem]);
     }
 
-    pub fn solve(&mut self, n_partitions: usize) -> i32 {
+    pub fn solve(&mut self, n_partitions: usize, relaxed: bool) -> i32 {
         if self.disjunctions.is_empty() {
             return 0;
         }
@@ -107,12 +114,27 @@ impl WdgSolverBinaryMIP {
 
         // Constraints
 
-        for (d_idx, (alt1, alt2)) in self.disjunctions.iter().enumerate() {
+        let mut sorted = (0..self.disjunctions.len()).collect::<Vec<usize>>();
+        sorted.sort_by_key(|x| {
+            (
+                self.disjunctions[*x].0[0].partition,
+                self.disjunctions[*x].1[0].partition,
+            )
+        });
+
+        for d_idx in sorted {
+            //for (d_idx, (alt1, alt2)) in self.disjunctions.iter().enumerate() {
+            let (alt1, alt2) = &self.disjunctions[d_idx];
+            // println!(" {}:  {:?} <-> {:?}", d_idx, alt1, alt2);
             if self.dominated_disjunctions.contains(&d_idx) {
                 continue;
             }
 
-            let var: highs::Col = problem.add_integer_column(0.0, 0..1);
+            let var: highs::Col = if relaxed {
+                problem.add_column(0.0, 0..1)
+            } else {
+                problem.add_integer_column(0.0, 0..1)
+            };
 
             // alt1 constraints
             for WdgEdge { partition, d_cost } in alt1.iter() {

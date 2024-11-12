@@ -1,4 +1,9 @@
-use std::{cmp::Reverse, collections::BinaryHeap, rc::Rc};
+use std::{
+    cmp::Reverse,
+    collections::BinaryHeap,
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 use log::{debug, info, trace};
 use tinyvec::TinyVec;
@@ -11,6 +16,7 @@ use crate::{
 pub struct SolverSettings {
     pub use_strong_branching: bool,
     pub use_wdg_bound: bool,
+    pub use_relaxed_wdg :bool,
 }
 
 #[derive(Default)]
@@ -48,16 +54,25 @@ pub struct SolverStats {
     pub max_depth: u32,
     pub solution_depth: u32,
     pub root_bound: i32,
+    pub best_bound: i32,
+    pub best_value: i32,
 }
 
-pub fn solve(problem: &DisjunctiveGraph, settings: &SolverSettings) -> (SolverStats, Option<i32>) {
+pub fn solve(
+    problem: &DisjunctiveGraph,
+    settings: &SolverSettings,
+    timeout: Duration,
+) -> (SolverStats, Option<i32>) {
+    let start_time = Instant::now();
     let mut stats = SolverStats {
         max_depth: 0,
         n_nodes_generated: 0,
         n_nodes_solved: 0,
         n_states_generated: 0,
         solution_depth: u32::MAX,
-        root_bound: i32::MAX,
+        root_bound: 0,
+        best_bound: 0,
+        best_value: i32::MAX,
     };
     let mut world = match World::new(problem) {
         None => {
@@ -82,10 +97,20 @@ pub fn solve(problem: &DisjunctiveGraph, settings: &SolverSettings) -> (SolverSt
     let mut node_buf: Vec<Rc<Node>> = Vec::new();
 
     loop {
+
+
+
+        // Terminate timeout
+        if start_time.elapsed() > timeout {
+            return (stats, None);
+        }
+
         // Terminate when lb >= ub
         if target_state.state.lb >= best_state.as_ref().map(|s| s.state.lb).unwrap_or(i32::MAX) {
             break;
         }
+
+        stats.best_bound = stats.best_bound.max(target_state.state.lb);
 
         // Bring the world state to the target state:
         //
@@ -93,7 +118,8 @@ pub fn solve(problem: &DisjunctiveGraph, settings: &SolverSettings) -> (SolverSt
         // then push constraints until we get down to the `node`.
         trace!(
             "going to node d={} lb={}",
-            target_state.depth, target_state.state.lb
+            target_state.depth,
+            target_state.state.lb
         );
         {
             let mut common_ancestor = &target_state;
@@ -121,6 +147,7 @@ pub fn solve(problem: &DisjunctiveGraph, settings: &SolverSettings) -> (SolverSt
             None => {
                 if target_state.state.lb < ub {
                     info!("NEW BEST {}", target_state.state.lb);
+                    stats.best_value = target_state.state.lb;
                     best_state = Some(target_state);
                 }
                 Default::default()
@@ -148,6 +175,7 @@ pub fn solve(problem: &DisjunctiveGraph, settings: &SolverSettings) -> (SolverSt
                             if node.state.branching.is_none() {
                                 assert!(node.state.lb < ub);
                                 info!("NEW BEST {}", node.state.lb);
+                                stats.best_value = target_state.state.lb;
                                 best_state = Some(node);
                             } else {
                                 new_nodes.push(node);
@@ -187,5 +215,11 @@ pub fn solve(problem: &DisjunctiveGraph, settings: &SolverSettings) -> (SolverSt
     }
 
     stats.solution_depth = best_state.as_ref().map(|n| n.depth).unwrap_or(u32::MAX);
+    
+    if let Some(best) = best_state.as_ref() {
+        stats.best_bound = stats.best_bound.max(best.state.lb);
+        stats.best_value = best.state.lb;
+    }
+
     (stats, best_state.map(|n| n.state.lb))
 }

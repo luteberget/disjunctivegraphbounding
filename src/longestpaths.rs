@@ -101,7 +101,7 @@ impl LongestPaths {
                     
                     self.objective_value += delta_objective;
                     if delta_objective > 0 {
-                        debug!("changed position from {} to {}", old_position, target_position);
+                        // debug!("changed position from {} to {}", old_position, target_position);
                         bound_change(next_node, delta_objective);
                     }
 
