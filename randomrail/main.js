@@ -55,6 +55,9 @@ function add_infrastructure(infrastructure) {
   function add_timetable(timetable) {
 
     console.log("TT");
+
+    
+
     const time_scale = 10.0 / 3600.0;
     const points = [];
     const index = [];
@@ -91,6 +94,35 @@ function add_infrastructure(infrastructure) {
     //   l.translateZ(i);
     //   scene.add( l );
     // }
+
+    const minTime = Math.min(...timetable.trains.flatMap(t => t.operations).map(op => op.time));
+    const maxTime = Math.max(...timetable.trains.flatMap(t => t.operations).map(op => op.time));
+    const planeMaterial = new THREE.MeshBasicMaterial({color: "white", side: THREE.DoubleSide});
+    planeMaterial.transparent = true;
+    planeMaterial.opacity = 0.4;
+    for(const res of infrastructure.resources) {
+      let x1 = infrastructure.nodes[res.node_lo].location.x;
+      let y1 = infrastructure.nodes[res.node_lo].location.y;
+      let z1 = minTime * time_scale;
+      let x2 = infrastructure.nodes[res.node_hi].location.x;
+      let y2 = infrastructure.nodes[res.node_hi].location.y;
+      let z2 = maxTime * time_scale;
+
+      
+      
+      let planeGeom = new THREE.BufferGeometry();
+      planeGeom.setAttribute( 'position', new THREE.BufferAttribute( new Float32Array([
+        x1,y1,z1,
+        x2,y2,z1,
+        x1,y1,z2,
+        x2,y2,z2,
+      ]), 3 ));
+
+      planeGeom.setIndex([0,1,2,1,3,2]);
+      var mesh2 = new THREE.Mesh(planeGeom, planeMaterial);
+
+      scene.add( mesh2 );
+    }
   }
 }
 

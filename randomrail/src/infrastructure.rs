@@ -66,7 +66,7 @@ pub fn generate_infrastructure() -> (Infrastructure, Vec<Vec<Vec<usize>>>, usize
     let mut main_line = add_simple_line(
         &mut infrastructure,
         main_station_west,
-        10,
+        7,
         15,
         4.0,
         true,
@@ -76,6 +76,7 @@ pub fn generate_infrastructure() -> (Infrastructure, Vec<Vec<Vec<usize>>>, usize
     main_line.push(main_station_east);
 
     println!("main line {:?}", main_line);
+    println!("main line length {}", infrastructure.resources.iter().map(|r| r.length).sum::<f64>());
 
     let west_n_lines = 3;
     let east_n_lines = 4;
@@ -86,8 +87,8 @@ pub fn generate_infrastructure() -> (Infrastructure, Vec<Vec<Vec<usize>>>, usize
             add_simple_line(
                 &mut infrastructure,
                 main_station_east,
-                10,
-                30,
+                7,
+                20,
                 10.0,
                 false,
                 true,
@@ -149,8 +150,8 @@ pub fn generate_infrastructure() -> (Infrastructure, Vec<Vec<Vec<usize>>>, usize
             add_simple_line(
                 &mut infrastructure,
                 node_idx,
-                10,
-                30,
+                7,
+                20,
                 10.0,
                 false,
                 false,
@@ -328,6 +329,7 @@ pub fn add_simple_line(
                 capacity: n_station_tracks,
             },
         });
+        total_length += 0.2;
 
         track_start_node = station_end_node;
     }

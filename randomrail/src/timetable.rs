@@ -27,7 +27,7 @@ pub struct Operation {
 const SPEED :f64 = 60.0 /* km/h */ / 3600.0 /* km/sec */;
 const SPAN: f64 = 6. * 3600.; // 6 hours
 const SLACK: f64 = 1.04; // 4% running time slack
-const MAIN_PERIOD: f64 = 180.0; // 3 minute bottleneck frequency
+const MAIN_PERIOD: f64 = 10.0*60.0; // bottleneck frequency
 
 pub fn generate_timetable(
     infrastructure: &Infrastructure,
@@ -75,17 +75,17 @@ pub fn generate_timetable(
             .unwrap();
 
         // dispatch
-        for up in [true,false] {
-        trains.push(generate_train(
-            infrastructure,
-            &services[g][s],
-            SPEED,
-            SLACK,
-            up,
-            bottleneck,
-            t,
-        ));
-    }
+        for up in [true, false] {
+            trains.push(generate_train(
+                infrastructure,
+                &services[g][s],
+                SPEED,
+                SLACK,
+                up,
+                bottleneck,
+                t,
+            ));
+        }
 
         // increase the counters
         group_counter[g] += 1;
@@ -131,9 +131,14 @@ pub fn generate_train(
         down_resources.entry(res.node_hi).or_default().push(res_idx);
     }
 
+    let line: Box<dyn Iterator<Item = _>> = if up {
+        Box::new(line.iter())
+    } else {
+        Box::new(line.iter().rev())
+    };
+
     let mut time = 0.0;
     let mut operations: Vec<Operation> = line
-        .iter()
         .filter_map(|n| {
             if up { &up_resources } else { &down_resources }
                 .get(n)
@@ -147,7 +152,7 @@ pub fn generate_train(
                 min_duration,
                 time,
             };
-            let dt = min_duration * (1.0 + slack);
+            let dt = min_duration * slack;
             time += dt;
             op
         })
@@ -161,6 +166,17 @@ pub fn generate_train(
     for op in operations.iter_mut() {
         op.time += ref_time - ref_op_time;
     }
+
+    let length = operations.iter().map(|x| infrastructure.resources[x.resource].length ).sum::<f64>();
+
+    let realspeed = 
+    length / (operations.last().unwrap().time - operations[0].time);
+
+    println!("train len {} speed {} realspeed {} up {} reftime {} total time {}",length, speed,realspeed, up,operations
+    .iter()
+    .find(|x| x.resource == ref_resource)
+    .unwrap()
+    .time, operations.last().unwrap().time - operations[0].time);
 
     Train { operations }
 }
